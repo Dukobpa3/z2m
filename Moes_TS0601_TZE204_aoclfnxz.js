@@ -103,13 +103,26 @@ const definition = {
     meta: {
         // All datapoints go in here
         tuyaDatapoints: [
+            [40, 'child_lock', tuya.valueConverter.lockUnlock],
 
             [26, 'deadzone_temperature', tuya.valueConverter.raw],
             [19, 'max_temperature_limit', tuya.valueConverter.raw],
+
+            [16, 'current_heating_setpoint', tuya.valueConverter.raw],
+
+            [24, 'local_temperature', tuya.valueConverter.divideBy10],
+            [27, 'local_temperature_calibration', tuya.valueConverter.localTemperatureCalibration],
+
+
+            [1, 'system_mode', tuya.valueConverterBasic.lookup({off: tuya.enum(0), heat: tuya.enum(1)})],
+            [2, 'running_state', tuya.valueConverterBasic.lookup({idle: tuya.enum(0), heat: tuya.enum(1)})],
+            [3, 'preset', tuya.valueConverterBasic.lookup({hold: tuya.enum(0), program: tuya.enum(1)})],
+            [43, 'sensor', tuya.valueConverterBasic.lookup({IN: tuya.enum(0), AL: tuya.enum(1), OU: tuya.enum(2)})],
         ],
     },
-    extend: [],
+    extend: [
+
+    ],
 };
 
-//exports.default = definition;
 module.exports = definition;
