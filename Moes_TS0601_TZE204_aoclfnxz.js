@@ -38,6 +38,10 @@ const definition = {
         // Here you should put all functionality that your device exposes
         e.linkquality(),
         e.child_lock(),
+        e.enum('screen_lock', ea.STATE_SET, ['on', 'off'])
+            .withDescription('On/Off state of the screen'),
+
+        //e.enum('work_state', ea.STATE, ['idle', 'heat']).withDescription('does nothing, enum with one value "hot"'), //does nothing, enum with one value "hot"
 
         e.numeric('deadzone_temperature', ea.STATE_SET)
             .withUnit('°C')
@@ -56,11 +60,10 @@ const definition = {
             .withSetpoint('current_heating_setpoint', 5, 45, 1, ea.STATE_SET)
             .withLocalTemperature(ea.STATE)
             .withLocalTemperatureCalibration(-9, 9, 1, ea.STATE_SET)
-            .withSystemMode(['off', 'heat'], ea.STATE_SET)
-            .withRunningState(['idle', 'heat'], ea.STATE)
-            .withPreset(['hold', 'program']),
+            .withRunningState(['idle', 'heat'], ea.STATE) // readonly state
+            .withPreset(['manual', 'program']),
 
-        e.temperature_sensor_select(['IN', 'AL', 'OU']),
+        e.temperature_sensor_select(['IN', 'AL']),
 
         e.composite('program', 'program', ea.STATE_SET)
             .withDescription(
@@ -72,11 +75,13 @@ const definition = {
             )
             .withFeature(e.text('week_days', ea.STATE_SET).withDescription(''))
             .withFeature(e.text('saturday', ea.STATE_SET).withDescription(''))
-            .withFeature(e.text('sunday', ea.STATE_SET).withDescription(''))
+            .withFeature(e.text('sunday', ea.STATE_SET).withDescription('')),
     ],
     meta: {
         // All datapoints go in here
         tuyaDatapoints: [
+            [1, 'screen_lock', tuya.valueConverterBasic.lookup({off: false, on: true})],
+
             [40, 'child_lock', tuya.valueConverter.lockUnlock],
 
             [26, 'deadzone_temperature', tuya.valueConverter.raw],
@@ -87,84 +92,85 @@ const definition = {
             [24, 'local_temperature', tuya.valueConverter.divideBy10],
             [27, 'local_temperature_calibration', tuya.valueConverter.localTemperatureCalibration],
 
+            [2, 'preset', tuya.valueConverterBasic.lookup({program: tuya.enum(1), manual: tuya.enum(0)})],
+            [36, 'running_state', tuya.valueConverterBasic.lookup({idle: tuya.enum(1), heat: tuya.enum(0)})],
+            //[3, 'work_state', tuya.valueConverterBasic.lookup({idle: tuya.enum(0), heat: tuya.enum(1)})],
 
-            [1, 'system_mode', tuya.valueConverterBasic.lookup({off: tuya.enum(0), heat: tuya.enum(1)})],
-            [2, 'running_state', tuya.valueConverterBasic.lookup({idle: tuya.enum(0), heat: tuya.enum(1)})],
-            [3, 'preset', tuya.valueConverterBasic.lookup({hold: tuya.enum(0), program: tuya.enum(1)})],
-            [43, 'sensor', tuya.valueConverterBasic.lookup({IN: tuya.enum(0), AL: tuya.enum(1), OU: tuya.enum(2)})],
+            
+
+            [43, 'sensor', tuya.valueConverterBasic.lookup({IN: tuya.enum(0), AL: tuya.enum(1)})],
             [101, 'program', {
-                    to: (v, meta) => {
-                        if (!meta.state.program) {
-                            //logger.warning(`Existing program state not set.`, 'zhc:legacy:tz:moes_bht_002');
-                            return;
+                to: (v, meta) => {
+                    if (!meta.state.program) {
+                        //logger.warning(`Existing program state not set.`, 'zhc:legacy:tz:moes_bht_002');
+                        return;
+                    }
+
+                    /* Merge modified value into existing state and send all over in one go */
+                    const newProgram = {
+                        // @ts-expect-error ignore
+                        ...meta.state.program,
+                        ...v,
+                    };
+
+                    const regex = /((?<h>[01][0-9]|2[0-3]):(?<m>[0-5][0-9])\/(?<t>[0-3][0-9](\.[0,5]|)))/gm;
+                    let arr;
+                    let matches = [...newProgram.week_days.matchAll(regex)];
+                    if (matches.length === 4) {
+                        arr = matches.reduce((arr, m) => {
+                            arr.push(parseInt(m.groups.h));
+                            arr.push(parseInt(m.groups.m));
+                            arr.push(parseFloat(m.groups.t) * 2);
+                            return arr;
+                        }, []);
+                    }
+
+                    matches = [...newProgram.saturday.matchAll(regex)];
+                    if (matches.length === 4) {
+                        arr = arr.concat(matches.reduce((arr, m) => {
+                            arr.push(parseInt(m.groups.h));
+                            arr.push(parseInt(m.groups.m));
+                            arr.push(parseFloat(m.groups.t) * 2);
+                            return arr;
+                        }, []));
+                    }
+
+                    matches = [...newProgram.sunday.matchAll(regex)];
+                    if (matches.length === 4) {
+                        arr = arr.concat(matches.reduce((arr, m) => {
+                            arr.push(parseInt(m.groups.h));
+                            arr.push(parseInt(m.groups.m));
+                            arr.push(parseFloat(m.groups.t) * 2);
+                            return arr;
+                        }, []));
+                    }
+                    return arr;
+                    //logger.warning('Ignoring invalid or incomplete schedule', NS);
+                },
+                from: (v, meta) => {
+                    let r = ['', '', ''];
+
+                    let x = 4;
+                    let y = 0;
+                    for (let i = 0; i < 12; i++) {
+                        r[y] += `${v[i * 3].toString().padStart(2, '0')}:${v[i * 3 + 1].toString().padStart(2, '0')}/${v[i * 3 + 2] / 2}`;
+                        x--;
+
+                        if (x > 0) {
+                            r[y] += ' ';
+                        } else {
+                            x = 4;
+                            y++;
                         }
+                    }
 
-                        /* Merge modified value into existing state and send all over in one go */
-                        const newProgram = {
-                            // @ts-expect-error ignore
-                            ...meta.state.program,
-                            ...v,
-                        };
-
-                        const regex = /((?<h>[01][0-9]|2[0-3]):(?<m>[0-5][0-9])\/(?<t>[0-3][0-9](\.[0,5]|)))/gm;
-                        let arr;
-                        let matches = [...newProgram.week_days.matchAll(regex)];
-                        if (matches.length === 4) {
-                            arr = matches.reduce((arr, m) => {
-                                arr.push(parseInt(m.groups.h));
-                                arr.push(parseInt(m.groups.m));
-                                arr.push(parseFloat(m.groups.t) * 2);
-                                return arr;
-                            }, []);
-                        }
-
-                        matches = [...newProgram.saturday.matchAll(regex)];
-                        if (matches.length === 4) {
-                            arr = arr.concat(matches.reduce((arr, m) => {
-                                arr.push(parseInt(m.groups.h));
-                                arr.push(parseInt(m.groups.m));
-                                arr.push(parseFloat(m.groups.t) * 2);
-                                return arr;
-                            }, []));
-                        }
-
-                        matches = [...newProgram.sunday.matchAll(regex)];
-                        if (matches.length === 4) {
-                            arr = arr.concat(matches.reduce((arr, m) => {
-                                arr.push(parseInt(m.groups.h));
-                                arr.push(parseInt(m.groups.m));
-                                arr.push(parseFloat(m.groups.t) * 2);
-                                return arr;
-                            }, []));
-                        }
-                        return arr;
-                        //logger.warning('Ignoring invalid or incomplete schedule', NS);
-                    },
-                    from: (v, meta) => {
-                        let r = ['', '', ''];
-
-                        let x = 4;
-                        let y = 0;
-                        for (let i = 0; i < 12; i++) {
-                            r[y] += `${v[i * 3].toString().padStart(2, '0')}:${v[i * 3 + 1].toString().padStart(2, '0')}/${v[i * 3 + 2] / 2}`;
-                            x--;
-
-                            if (x > 0) {
-                                r[y] += ' ';
-                            }
-                            else {
-                                x = 4;
-                                y ++;
-                            }
-                        }
-
-                        return {
-                            week_days:r[0],
-                            saturday:r[1],
-                            sunday:r[2]
-                        };
-                    },
-                },]
+                    return {
+                        week_days: r[0],
+                        saturday: r[1],
+                        sunday: r[2],
+                    };
+                },
+            }],
         ],
     },
     extend: [],
