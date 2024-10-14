@@ -38,8 +38,8 @@ const definition = {
         // Here you should put all functionality that your device exposes
         e.linkquality(),
         e.child_lock(),
-        e.enum('screen_lock', ea.STATE_SET, ['on', 'off'])
-            .withDescription('On/Off state of the screen'),
+        e.enum('system_mode', ea.STATE_SET, ['on', 'off'])
+            .withDescription('On/Off thermostat'),
 
         //e.enum('work_state', ea.STATE, ['idle', 'heat']).withDescription('does nothing, enum with one value "hot"'), //does nothing, enum with one value "hot"
 
@@ -52,35 +52,50 @@ const definition = {
 
         e.numeric('max_temperature_limit', ea.STATE_SET)
             .withUnit('°C')
-            .withDescription('Maximum temperature limit. Cuts the thermostat out regardless of air temperature if the external floor sensor exceeds this temperature. Only used by the thermostat when in AL sensor mode.')
+            .withDescription(
+                'Maximum temperature limit. Cuts the thermostat out regardless of air temperature\
+                if the external floor sensor exceeds this temperature. \
+                Only used by the thermostat when in AL sensor mode.')
             .withValueMin(45)
             .withValueMax(70),
 
+        e.numeric('current_heating_setpoint', ea.STATE_SET)
+            .withUnit('°C')
+            .withDescription(
+                'Temperature set point. In "program" mode setting this value \
+                will heat the floor to needed value regardless other setting then return to program mode. \
+                Device also don\'t rewrite this value in program mode \
+                and in next "hold" session will recall last manual setpoint. \
+                To clean it select "program mode" twice.')
+            .withValueMin(1)
+            .withValueMax(45)
+            .withValueStep(1),
+
         e.climate()
-            .withSetpoint('current_heating_setpoint', 5, 45, 1, ea.STATE_SET)
             .withLocalTemperature(ea.STATE)
             .withLocalTemperatureCalibration(-9, 9, 1, ea.STATE_SET)
             .withRunningState(['idle', 'heat'], ea.STATE) // readonly state
-            .withPreset(['manual', 'program']),
+            .withPreset(['hold', 'program']),
 
-        e.temperature_sensor_select(['IN', 'AL']),
+        e.temperature_sensor_select(['IN', 'AL', 'OU']),
 
         e.composite('program', 'program', ea.STATE_SET)
             .withDescription(
-                'Schedule will work with "program" preset. In this mode, the device executes ' +
-                'a preset week programming temperature time and temperature. Schedule can contains 12 segments. ' +
-                'All 12 segments should be defined. It should be defined in the following format: "hh:mm/tt". ' +
-                'Segments should be divided by space symbol. ' +
-                'Example: "06:00/20 11:30/21 13:30/22 17:30/23 06:00/24 12:00/23 14:30/22 17:30/21 06:00/19 12:30/20 14:30/21 18:30/20"',
+                'Schedule will work with "program" preset. In this mode, the device will turn on \
+                needed temperature at the needed time \
+                and will keep it until the next segment started. \
+                \nEach schedule contains 4 segments. All 4 segments should be defined. \
+                \nFormat: "hh:mm/tt.t" divided by space symbol (temp selection with step 0.5). \
+                \nExample: "06:00/20 11:30/21.5 13:30/22 17:30/23"'
             )
-            .withFeature(e.text('week_days', ea.STATE_SET).withDescription(''))
-            .withFeature(e.text('saturday', ea.STATE_SET).withDescription(''))
-            .withFeature(e.text('sunday', ea.STATE_SET).withDescription('')),
+            .withFeature(e.text('week_days', ea.STATE_SET))
+            .withFeature(e.text('saturday', ea.STATE_SET))
+            .withFeature(e.text('sunday', ea.STATE_SET)),
     ],
     meta: {
         // All datapoints go in here
         tuyaDatapoints: [
-            [1, 'screen_lock', tuya.valueConverterBasic.lookup({off: false, on: true})],
+            [1, 'system_mode', tuya.valueConverterBasic.lookup({off: false, on: true})],
 
             [40, 'child_lock', tuya.valueConverter.lockUnlock],
 
@@ -92,13 +107,13 @@ const definition = {
             [24, 'local_temperature', tuya.valueConverter.divideBy10],
             [27, 'local_temperature_calibration', tuya.valueConverter.localTemperatureCalibration],
 
-            [2, 'preset', tuya.valueConverterBasic.lookup({program: tuya.enum(1), manual: tuya.enum(0)})],
+            [2, 'preset', tuya.valueConverterBasic.lookup({program: tuya.enum(1), hold: tuya.enum(0)})],
             [36, 'running_state', tuya.valueConverterBasic.lookup({idle: tuya.enum(1), heat: tuya.enum(0)})],
             //[3, 'work_state', tuya.valueConverterBasic.lookup({idle: tuya.enum(0), heat: tuya.enum(1)})],
 
             
 
-            [43, 'sensor', tuya.valueConverterBasic.lookup({IN: tuya.enum(0), AL: tuya.enum(1)})],
+            [43, 'sensor', tuya.valueConverterBasic.lookup({IN: tuya.enum(0), AL: tuya.enum(1), OU: tuya.enum(2)})],
             [101, 'program', {
                 to: (v, meta) => {
                     if (!meta.state.program) {
